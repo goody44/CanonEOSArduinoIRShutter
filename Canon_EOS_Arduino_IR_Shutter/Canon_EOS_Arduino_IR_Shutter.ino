@@ -6,6 +6,8 @@
  * Parses commands sent to it via serial.
  *
  * Sends the same commands as the Canon RC-1 and RC-5 remotes
+ * send 2 lots of 16 pulses seperated by 5.3 ms pause for 2 second delayed shutter
+ * send 2 lots of 16 pulses seperated by 7.3 ms pause for instant shutter
  *
  * Tested with an EOS 60D and Arduino Mega 2560 board
  *
@@ -80,7 +82,7 @@ void loop() {
         Serial.println("Available commands:");
         Serial.println("\tfire - fires shutter immediately");
         Serial.println("\tdelay <seconds (optional)>- fires shutter after <?> second delay (default 2 seconds)");
-        Serial.println("\tinterval <seconds> - fires shutter every <?> seconds");
+        Serial.println("\tinterval <seconds> <maxFireTimes (optional) - fires shutter every <?> seconds. Fire the shutter the number of times specified by 'maxFireTimes' if it is set otherwise never stop.");
         Serial.println();
       } else if (strcmp(command, "fire") == 0) {
         //fire the shutter immediatly
@@ -101,7 +103,7 @@ void loop() {
         
         //only delays 2 seconds or above are valid
         if (delaySecs <= 1) {
-          Serial.println("Specified delay was not valid. Delay must be >= 2 seconds.");
+          Serial.println("Specified delay was not valid. Delay must be >= 1 seconds.");
         } 
         
         fireDelayShutter(delaySecs);
@@ -113,16 +115,27 @@ void loop() {
         } else {
           //parse the interval
           long interval = strtol(&command[9], NULL, 0);
-          if (interval <= 1) {
-            Serial.println("Specified interval was not valid. Interval must be >= 2 seconds.");
+          if (interval <= 0) {
+            Serial.println("Specified interval was not valid. Interval must be >= 1 second.");
           } else {
+            
+            //check if there in a max fire amount specified
+            int numDigits = floor(log10 (abs (interval)))+1;
+            int maxFieTimes = strtol(&command[9+numDigits+1], NULL, 0);
+            
             Serial.print("Firing Shutter at ");
             Serial.print(interval);
-            Serial.println(" second intervals...");
-
-            //fire the shutter at the parsed interval. There is no end point
-            while (true) {
+            Serial.println(" second intervals.");
+            Serial.print("The shutter will fire ");
+            Serial.print(maxFieTimes <= 0 ? "infinity" : String(maxFieTimes));
+            Serial.println(maxFieTimes == 1 ? " time." : " times.");
+            
+            //fire the shutter at the parsed interval the specified number of times.
+            //If maxFireTime is <= 0 then keep firing forever
+            int fireCount = 0;
+            while (maxFieTimes <= 0 || fireCount < maxFieTimes) {
               fireDelayShutter(interval);
+              fireCount++;
             }
           }
         }
@@ -143,13 +156,24 @@ void loop() {
 
 /*
  * Delay for specified amount of seconds before firing shutter.
- * This will signal the shutter to fire using the 2 second delay signal.
+ * If the delaySec's is >= 2 seconds then this will signal the shutter to fire using the 2 second delay signal.
  * This allows the user to see (via the light on the camera) that the shutter is
  * about to fire.
  *
  * This also prints out messages counting down to the time that the shutter will fire.
  */
 void fireDelayShutter(int delaySecs) {
+  
+  if (delaySecs == 1) {
+    //we need to fire the shutter without using the 2 second delay signal
+    Serial.println("Firing in 1 second");
+    delay(1000);
+    Serial.println("Firing shutter");
+    //use instant fire signal
+    fireShutter(true);
+    return;
+  }
+  
   for (int i=delaySecs; i>0; i--) {
     Serial.print("Firing in ");
     Serial.print(i);
